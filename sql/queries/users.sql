@@ -6,3 +6,9 @@ RETURNING *;
 SELECT *
 FROM users
 WHERE users.name = $1;
+-- name: DeleteAllUsers :exec
+DELETE FROM users
+WHERE 1 = 1;
+-- name: ListAllUsers :many
+SELECT *
+FROM users;

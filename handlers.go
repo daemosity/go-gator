@@ -13,6 +13,8 @@ func getCommands() commands {
 	commands := initCommands()
 	commands.register("login", handlerLogin)
 	commands.register("register", handlerRegister)
+	commands.register("reset", handlerReset)
+	commands.register("users", handlerUsers)
 
 	return commands
 }
@@ -69,5 +71,35 @@ func handlerRegister(s *state, cmd command) error {
 
 	fmt.Printf("INFO: User %s registered in system\n", userName)
 	fmt.Printf("%v\n", user)
+	return nil
+}
+
+func handlerReset(s *state, cmd command) error {
+	ctx := context.Background()
+
+	if err := s.db.DeleteAllUsers(ctx); err != nil {
+		return err
+	}
+
+	fmt.Printf("INFO: users table has been reset\n")
+	return nil
+}
+
+func handlerUsers(s *state, cmd command) error {
+	ctx := context.Background()
+
+	users, err := s.db.ListAllUsers(ctx)
+	if err != nil {
+		return err
+	}
+	current_user := s.config.Current_user_name
+
+	for _, user := range users {
+		if user.Name == current_user {
+			fmt.Printf("%s (current)\n", user.Name)
+		} else {
+			fmt.Printf("%s\n", user.Name)
+		}
+	}
 	return nil
 }

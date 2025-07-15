@@ -1,12 +1,18 @@
 package main
 
 import (
+	"context"
 	"fmt"
+	"time"
+
+	"github.com/daemosity/go-gator/internal/database"
+	"github.com/google/uuid"
 )
 
 func getCommands() commands {
 	commands := initCommands()
 	commands.register("login", handlerLogin)
+	commands.register("register", handlerRegister)
 
 	return commands
 }
@@ -16,14 +22,52 @@ func handlerLogin(s *state, cmd command) error {
 		return fmt.Errorf("error: %s requires one (1) argument: [username]", cmd.name)
 	}
 
-	given_user := cmd.args[0]
+	ctx := context.Background()
+	givenUser := cmd.args[0]
 
-	err := s.config.SetUser(given_user)
+	if _, err := s.db.GetUser(ctx, givenUser); err != nil {
+		return fmt.Errorf("error: username %s is not registered, use 'register [username]' command", givenUser)
+	}
+
+	if err := s.config.SetUser(givenUser); err != nil {
+		return err
+	}
+
+	fmt.Printf("INFO: %s has been set as current user.\n", givenUser)
+
+	return nil
+}
+
+func handlerRegister(s *state, cmd command) error {
+	if !cmd.hasArgs() {
+		return fmt.Errorf("error: %s requires one (1) argument: [username]", cmd.name)
+	}
+
+	ctx := context.Background()
+	userName := cmd.args[0]
+
+	_, err := s.db.GetUser(ctx, userName)
+	if err == nil {
+		return fmt.Errorf("error: username %s already registered, use 'login [username]' command", userName)
+	}
+
+	entries := database.CreateUserParams{
+		ID:        uuid.New(),
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+		Name:      userName,
+	}
+
+	user, err := s.db.CreateUser(ctx, entries)
 	if err != nil {
 		return err
 	}
 
-	fmt.Printf("INFO: %s has been set as current user.\n", given_user)
+	if err := s.config.SetUser(userName); err != nil {
+		return err
+	}
 
+	fmt.Printf("INFO: User %s registered in system\n", userName)
+	fmt.Printf("%v\n", user)
 	return nil
 }

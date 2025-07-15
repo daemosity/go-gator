@@ -1,11 +1,14 @@
 package main
 
 import (
+	"database/sql"
 	"errors"
 	"fmt"
 	"os"
 
 	"github.com/daemosity/go-gator/internal/config"
+	"github.com/daemosity/go-gator/internal/database"
+	_ "github.com/lib/pq"
 )
 
 func main() {
@@ -15,7 +18,17 @@ func main() {
 		os.Exit(1)
 	}
 
+	db, err := sql.Open("postgres", configObj.Db_url)
+	if err != nil {
+		fmt.Printf("Error: %v\n", err)
+		os.Exit(1)
+	}
+	defer db.Close()
+
+	dbQueries := database.New(db)
+
 	s := state{
+		db:     dbQueries,
 		config: &configObj,
 	}
 

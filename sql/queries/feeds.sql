@@ -15,3 +15,13 @@ SELECT feeds.name as "feedName",
     users.name as "createdBy"
 FROM feeds
     LEFT JOIN users ON users.id = feeds.user_id;
+-- name: MarkFeedFetched :one
+UPDATE feeds
+SET last_fetched_at = CURRENT_TIMESTAMP,
+    updated_at = CURRENT_TIMESTAMP
+WHERE feeds.id = $1
+RETURNING *;
+-- name: GetNextFeedToFetch :one
+SELECT *
+FROM feeds
+ORDER BY last_fetched_at ASC NULLS FIRST;

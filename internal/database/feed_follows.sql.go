@@ -105,3 +105,32 @@ func (q *Queries) GetFeedFollowsForUser(ctx context.Context, name string) ([]Get
 	}
 	return items, nil
 }
+
+const removeFollowForUser = `-- name: RemoveFollowForUser :one
+DELETE FROM feed_follows
+WHERE feed_follows.user_id = $1
+    AND feed_follows.feed_id IN (
+        SELECT feeds.id
+        FROM feeds
+        WHERE feeds.url = $2
+    )
+RETURNING id, created_at, updated_at, user_id, feed_id
+`
+
+type RemoveFollowForUserParams struct {
+	UserID uuid.UUID
+	Url    string
+}
+
+func (q *Queries) RemoveFollowForUser(ctx context.Context, arg RemoveFollowForUserParams) (FeedFollow, error) {
+	row := q.db.QueryRowContext(ctx, removeFollowForUser, arg.UserID, arg.Url)
+	var i FeedFollow
+	err := row.Scan(
+		&i.ID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.UserID,
+		&i.FeedID,
+	)
+	return i, err
+}

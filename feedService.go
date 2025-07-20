@@ -59,8 +59,6 @@ func fetchFeed(ctx context.Context, feedURL string) (*RSSFeed, error) {
 		rssFeed.Channel.Item[idx].Description = html.UnescapeString(item.Description)
 	}
 
-	fmt.Printf("Result: %v\n", rssFeed)
-
 	return &rssFeed, nil
 
 }

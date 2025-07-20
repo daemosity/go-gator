@@ -21,6 +21,7 @@ func getCommands() commands {
 	commands.register("feeds", handlerFeeds)
 	commands.register("follow", middlewareLoggedIn(handlerFollow))
 	commands.register("following", middlewareLoggedIn(handlerFollowing))
+	commands.register("unfollow", middlewareLoggedIn(handlerUnfollow))
 
 	return commands
 }
@@ -118,16 +119,22 @@ func handlerUsers(s *state, cmd command) error {
 }
 
 func handlerAgg(s *state, cmd command) error {
-	// if !cmd.hasArgs() {
-	// 	return fmt.Errorf("error: %s requires one (1) argument: [rss-url]", cmd.name)
-	// }
-	ctx := context.Background()
+	if !cmd.hasArgs() {
+		return fmt.Errorf("error: %s requires one (1) argument: [time_between_reqs (e.g. 1s; 1m; 1h)]", cmd.name)
+	}
 
-	// url_to_fetch := cmd.args[0]
-
-	_, err := fetchFeed(ctx, "https://www.wagslane.dev/index.xml")
+	time_between_reqs := cmd.args[0]
+	parsedInterval, err := time.ParseDuration(time_between_reqs)
 	if err != nil {
 		return err
+	}
+
+	fmt.Printf("\n\nCollecting feeds every %s\n\n", time_between_reqs)
+	ticker := time.NewTicker(parsedInterval)
+	for ; ; <-ticker.C {
+		if err := scrapeFeeds(s); err != nil {
+			return err
+		}
 	}
 
 	return nil
@@ -241,6 +248,54 @@ func handlerFollowing(s *state, cmd command, user database.User) error {
 	fmt.Printf("%s, you are currently following:\n", user.Name)
 	for _, follow := range follows {
 		fmt.Printf("- %s\n", follow.FeedName)
+	}
+
+	return nil
+}
+
+func handlerUnfollow(s *state, cmd command, user database.User) error {
+	if !cmd.hasArgs() || len(cmd.args) > 1 {
+		return fmt.Errorf("error: %s takes only one argument.\nUsage: %s [feed-url]", cmd.name, cmd.name)
+	}
+
+	ctx := context.Background()
+
+	urlToRemove := cmd.args[0]
+
+	parsedURL, err := url.Parse(urlToRemove)
+	if err != nil {
+		return fmt.Errorf("error parsing url: %s", urlToRemove)
+	}
+
+	feedToRemove := database.RemoveFollowForUserParams{
+		UserID: user.ID,
+		Url:    parsedURL.String(),
+	}
+
+	if _, err := s.db.RemoveFollowForUser(ctx, feedToRemove); err != nil {
+		return err
+	}
+
+	fmt.Printf("INFO: RSS -- %s -- successfully removed from follows\n", parsedURL.String())
+	return nil
+}
+
+func scrapeFeeds(s *state) error {
+	ctx := context.Background()
+	feed, err := s.db.GetNextFeedToFetch(ctx)
+	if err != nil {
+		return err
+	}
+
+	s.db.MarkFeedFetched(ctx, feed.ID)
+	rssFeed, err := fetchFeed(ctx, feed.Url)
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("\n\nDisplaying feed: %s\n", rssFeed.Channel.Title)
+	for _, feedItem := range rssFeed.Channel.Item {
+		fmt.Printf("Title: %s\n", feedItem.Title)
 	}
 
 	return nil

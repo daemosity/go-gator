@@ -21,3 +21,12 @@ SELECT GivenUser.name AS user_name,
 FROM feed_follows
     INNER JOIN GivenUser ON feed_follows.user_id = GivenUser.id
     INNER JOIN feeds ON feed_follows.feed_id = feeds.id;
+-- name: RemoveFollowForUser :one
+DELETE FROM feed_follows
+WHERE feed_follows.user_id = $1
+    AND feed_follows.feed_id IN (
+        SELECT feeds.id
+        FROM feeds
+        WHERE feeds.url = $2
+    )
+RETURNING *;

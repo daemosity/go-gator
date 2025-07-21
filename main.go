@@ -14,13 +14,13 @@ import (
 func main() {
 	configObj, err := config.Read()
 	if err != nil {
-		fmt.Printf("Error: %v\n", err)
+		fmt.Printf("Error: failed to read configuration file: %v\n", err)
 		os.Exit(1)
 	}
 
 	db, err := sql.Open("postgres", configObj.Db_url)
 	if err != nil {
-		fmt.Printf("Error: %v\n", err)
+		fmt.Printf("Error: could not connect to the database: %v\n", err)
 		os.Exit(1)
 	}
 	defer db.Close()
@@ -41,7 +41,7 @@ func main() {
 	}
 
 	if err := cmds.run(&s, userCmd); err != nil {
-		fmt.Printf("%v\n", err)
+		fmt.Printf("Error: %v\n", err)
 		os.Exit(1)
 	}
 

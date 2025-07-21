@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"net/url"
 	"strconv"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/daemosity/go-gator/internal/database"
 	"github.com/google/uuid"
+	"github.com/lib/pq"
 )
 
 func getCommands() commands {
@@ -61,6 +63,9 @@ func handlerRegister(s *state, cmd command) error {
 	_, err := s.db.GetUser(ctx, userName)
 	if err == nil {
 		return fmt.Errorf("error: username %s already registered, use\n\nUsage: login [username]", userName)
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("failed to query database: %w", err)
 	}
 
 	entries := database.CreateUserParams{
@@ -166,6 +171,10 @@ func handlerAddFeed(s *state, cmd command, user database.User) error {
 
 	feedInfo, err := s.db.CreateFeed(ctx, feedEntry)
 	if err != nil {
+		// Check for unique constraint on feed name or URL
+		if pqErr, ok := err.(*pq.Error); ok && pqErr.Code.Name() == "unique_violation" {
+			return fmt.Errorf("a feed with this name or URL already exists")
+		}
 		return fmt.Errorf("error: problem creating new feed: %w", err)
 	}
 
@@ -175,7 +184,7 @@ func handlerAddFeed(s *state, cmd command, user database.User) error {
 	cmd.args = []string{feedInfo.Url}
 	err = handlerFollow(s, cmd, user)
 	if err != nil {
-		return err
+		return fmt.Errorf("feed '%s' was added, but failed to auto-follow: %w", feedName, err)
 	}
 
 	return nil
@@ -215,7 +224,12 @@ func handlerFollow(s *state, cmd command, user database.User) error {
 
 	feed, err := s.db.GetFeedByURL(ctx, parsedURL.String())
 	if err != nil {
-		return err
+		if errors.Is(err, sql.ErrNoRows) {
+			// User error: The feed they want to follow doesn't exist.
+			return fmt.Errorf("the feed with URL '%s' is not registered in the system. Add it first with 'gator add feed'", urlToFollow)
+		}
+		// System error
+		return fmt.Errorf("failed to get feed by URL: %w", err)
 	}
 
 	feedFollow := database.CreateFeedFollowParams{
@@ -228,7 +242,13 @@ func handlerFollow(s *state, cmd command, user database.User) error {
 
 	feedFollowInfo, err := s.db.CreateFeedFollow(ctx, feedFollow)
 	if err != nil {
-		return err
+		// Check if the error is a unique constraint violation.
+		if pqErr, ok := err.(*pq.Error); ok && pqErr.Code.Name() == "unique_violation" {
+			// This is a user error: they are already following this feed.
+			return fmt.Errorf("you are already following '%s'", feed.Name)
+		}
+		// System error
+		return fmt.Errorf("failed to create feed follow: %w", err)
 	}
 
 	fmt.Printf("%s is now following %s\n", feedFollowInfo.UserName, feedFollowInfo.FeedName)

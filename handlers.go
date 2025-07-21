@@ -4,9 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"flag"
 	"fmt"
 	"net/url"
-	"strconv"
 	"time"
 
 	"github.com/daemosity/go-gator/internal/database"
@@ -303,44 +303,6 @@ func handlerUnfollow(s *state, cmd command, user database.User) error {
 	return nil
 }
 
-func handlerBrowse(s *state, cmd command, user database.User) error {
-	if len(cmd.args) > 1 {
-		return fmt.Errorf("error: %s takes only one optional argument.\nUsage: %s (limit)", cmd.name, cmd.name)
-	}
-	ctx := context.Background()
-
-	var numPosts string
-	if len(cmd.args) == 1 {
-		numPosts = cmd.args[0]
-	} else {
-		numPosts = "2"
-	}
-
-	result, err := strconv.ParseInt(numPosts, 10, 32)
-	if err != nil {
-		return err
-	}
-	limit := int32(result)
-
-	searchParams := database.GetPostsForUserParams{
-		UserID: user.ID,
-		Limit:  limit,
-	}
-
-	posts, err := s.db.GetPostsForUser(ctx, searchParams)
-	if err != nil {
-		return err
-	}
-
-	dateTimeLayout := "2006-01-02 03:04:05 PM CST"
-	fmt.Printf("%s, here are the %s most recent posts from your feed:\n\n", user.Name, numPosts)
-	for _, post := range posts {
-		fmt.Printf("\nPublished: %s\nTitle: %s\nURL: %s\nDescription: %s\n\n", post.PublishedAt.Format(dateTimeLayout), post.Title.String, post.Url, post.Description.String)
-	}
-
-	return nil
-}
-
 func scrapeFeeds(s *state) error {
 	ctx := context.Background()
 
@@ -440,4 +402,68 @@ func parseDate(dateStr string) (time.Time, error) {
 	}
 	// If none of the layouts worked, return an error.
 	return time.Time{}, fmt.Errorf("unable to parse date: %s", dateStr)
+}
+
+func handlerBrowse(s *state, cmd command, user database.User) error {
+	// Creating a flag set for the "browse" command
+	// This will prevent it from interfering with other commands or the main app
+	browseCmd := flag.NewFlagSet("browse", flag.ExitOnError)
+
+	// Defining flags
+	limit := browseCmd.Int("limit", 2, "The number of posts to retrieve")
+	sort := browseCmd.String("sort", "desc", "Sort order for posts: 'asc' or 'desc'")
+	feedName := browseCmd.String("feed", "", "Filter posts by a specific feed name")
+
+	// Parsing the arguments from the command struct
+	if err := browseCmd.Parse(cmd.args); err != nil {
+		return fmt.Errorf("error parsing flags for browse command: %w", err)
+	}
+
+	// Validating the sort flag
+	if *sort != "asc" && *sort != "desc" {
+		return fmt.Errorf("invalid sort value: must be 'asc' or 'desc'")
+	}
+
+	// Preparing the params for the advanced query
+	params := database.GetSortedOrFilteredPostsForUserParams{
+		UserID:   user.ID,
+		Limit:    int32(*limit),
+		FeedName: *feedName,
+		SortAsc:  *sort == "asc",
+		SortDesc: *sort == "desc",
+	}
+
+	ctx := context.Background()
+	posts, err := s.db.GetSortedOrFilteredPostsForUser(ctx, params)
+	if err != nil {
+		return fmt.Errorf("could not retrieve posts: %w", err)
+	}
+
+	if len(posts) == 0 {
+		fmt.Println("No posts found with the specified criteria.")
+		return nil
+	}
+
+	// Building output message
+	outputMessage := fmt.Sprintf("%s, here are your %d", user.Name, len(posts))
+	if *sort == "desc" {
+		outputMessage += " most recent"
+	} else {
+		outputMessage += " oldest"
+	}
+	outputMessage += " posts"
+	if *feedName != "" {
+		outputMessage += fmt.Sprintf(" from '%s'", *feedName)
+	}
+	fmt.Println(outputMessage + ":\n")
+
+	dateTimeLayout := "2006-01-02 03:04:05 PM CST"
+	for _, post := range posts {
+		fmt.Printf("Published: %s\n", post.PublishedAt.Format(dateTimeLayout))
+		fmt.Printf("Title: %s\n", post.Title.String)
+		fmt.Printf("Feed: %s\n", post.Description.String)
+		fmt.Printf("URL: %s\n\n", post.Url)
+	}
+
+	return nil
 }

@@ -116,3 +116,71 @@ func (q *Queries) GetPostsForUser(ctx context.Context, arg GetPostsForUserParams
 	}
 	return items, nil
 }
+
+const getSortedOrFilteredPostsForUser = `-- name: GetSortedOrFilteredPostsForUser :many
+SELECT p.id, p.created_at, p.updated_at, p.title, p.url, p.description, p.published_at, p.feed_id
+FROM posts p
+    INNER JOIN feed_follows ff ON p.feed_id = ff.feed_id
+    INNER JOIN feeds f ON p.feed_id = f.id
+WHERE ff.user_id = $1
+    AND (
+        -- optional. If the feed_name parameter is an empty string, the first part of the 'OR' is true and it shows posts from ALL followed feeds
+        -- If feed_name is provided, it filters for posts where f.name matches
+        $3::text = ''
+        OR f.name = $3
+    )
+ORDER BY -- This helps with dynamic sorting by passing boolean flags rather than injecting ASC or DESC
+    CASE
+        WHEN $4::bool THEN p.published_at
+    END ASC,
+    CASE
+        WHEN $5::bool THEN p.published_at
+    END DESC
+LIMIT $2
+`
+
+type GetSortedOrFilteredPostsForUserParams struct {
+	UserID   uuid.UUID
+	Limit    int32
+	FeedName string
+	SortAsc  bool
+	SortDesc bool
+}
+
+func (q *Queries) GetSortedOrFilteredPostsForUser(ctx context.Context, arg GetSortedOrFilteredPostsForUserParams) ([]Post, error) {
+	rows, err := q.db.QueryContext(ctx, getSortedOrFilteredPostsForUser,
+		arg.UserID,
+		arg.Limit,
+		arg.FeedName,
+		arg.SortAsc,
+		arg.SortDesc,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Post
+	for rows.Next() {
+		var i Post
+		if err := rows.Scan(
+			&i.ID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Title,
+			&i.Url,
+			&i.Description,
+			&i.PublishedAt,
+			&i.FeedID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}

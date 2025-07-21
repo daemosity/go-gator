@@ -8,6 +8,8 @@ import (
 	"io"
 	"net/http"
 	"time"
+
+	"github.com/microcosm-cc/bluemonday"
 )
 
 type RSSFeed struct {
@@ -52,11 +54,23 @@ func fetchFeed(ctx context.Context, feedURL string) (*RSSFeed, error) {
 		return nil, fmt.Errorf("error unmarshalling response %w", err)
 	}
 
+	// Creating a strict policy to strip all HTML tags
+	p := bluemonday.StripTagsPolicy()
+
 	rssFeed.Channel.Title = html.UnescapeString(rssFeed.Channel.Title)
 	rssFeed.Channel.Description = html.UnescapeString(rssFeed.Channel.Description)
+
+	// Strip remaining HTML tags
+	rssFeed.Channel.Title = p.Sanitize(rssFeed.Channel.Title)
+	rssFeed.Channel.Description = p.Sanitize(rssFeed.Channel.Description)
+
 	for idx, item := range rssFeed.Channel.Item {
 		rssFeed.Channel.Item[idx].Title = html.UnescapeString(item.Title)
 		rssFeed.Channel.Item[idx].Description = html.UnescapeString(item.Description)
+
+		// Strip remaining HTML tags
+		rssFeed.Channel.Item[idx].Title = p.Sanitize(item.Title)
+		rssFeed.Channel.Item[idx].Description = p.Sanitize(item.Description)
 	}
 
 	return &rssFeed, nil

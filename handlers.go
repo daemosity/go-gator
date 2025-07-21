@@ -312,9 +312,10 @@ func handlerBrowse(s *state, cmd command, user database.User) error {
 		return err
 	}
 
+	dateTimeLayout := "2006-01-02 03:04:05 PM CST"
 	fmt.Printf("%s, here are the %s most recent posts from your feed:\n\n", user.Name, numPosts)
 	for _, post := range posts {
-		fmt.Printf("\nPublished: %s\nTitle: %s\nDescription: %s\n\n", post.PublishedAt, post.Title.String, post.Description.String)
+		fmt.Printf("\nPublished: %s\nTitle: %s\nURL: %s\nDescription: %s\n\n", post.PublishedAt.Format(dateTimeLayout), post.Title.String, post.Url, post.Description.String)
 	}
 
 	return nil
@@ -337,7 +338,7 @@ func scrapeFeeds(s *state) error {
 	for _, feedItem := range rssFeed.Channel.Item {
 		title := buildSQLNullString(feedItem.Title)
 		description := buildSQLNullString(feedItem.Description)
-		published, err := time.Parse(time.RFC1123Z, feedItem.PubDate)
+		published, err := parseDate(feedItem.PubDate)
 		if err != nil {
 			return err
 		}
@@ -374,4 +375,28 @@ func buildSQLNullString(text string) sql.NullString {
 	}
 
 	return entry
+}
+
+// A slice of common date layouts to try when parsing.
+// The order matters; more common or specific formats should come first.
+var dateLayouts = []string{
+	time.RFC1123Z,
+	time.RFC1123,
+	time.RFC3339,
+	time.RFC822,
+	time.RFC822Z,
+	"2006-01-02T15:04:05Z", // A variation of RFC3339
+	"2006-01-02 15:04:05",  // Common SQL-like format
+}
+
+// parseDate attempts to parse a date string using a series of known layouts.
+func parseDate(dateStr string) (time.Time, error) {
+	for _, layout := range dateLayouts {
+		t, err := time.Parse(layout, dateStr)
+		if err == nil {
+			return t, nil // Success!
+		}
+	}
+	// If none of the layouts worked, return an error.
+	return time.Time{}, fmt.Errorf("unable to parse date: %s", dateStr)
 }

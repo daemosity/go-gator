@@ -126,22 +126,23 @@ WHERE ff.user_id = $1
     AND (
         -- optional. If the feed_name parameter is an empty string, the first part of the 'OR' is true and it shows posts from ALL followed feeds
         -- If feed_name is provided, it filters for posts where f.name matches
-        $3::text = ''
-        OR f.name = $3
+        $4::text = ''
+        OR f.name = $4
     )
 ORDER BY -- This helps with dynamic sorting by passing boolean flags rather than injecting ASC or DESC
     CASE
-        WHEN $4::bool THEN p.published_at
+        WHEN $5::bool THEN p.published_at
     END ASC,
     CASE
-        WHEN $5::bool THEN p.published_at
+        WHEN $6::bool THEN p.published_at
     END DESC
-LIMIT $2
+LIMIT $2 OFFSET $3
 `
 
 type GetSortedOrFilteredPostsForUserParams struct {
 	UserID   uuid.UUID
 	Limit    int32
+	Offset   int32
 	FeedName string
 	SortAsc  bool
 	SortDesc bool
@@ -151,6 +152,7 @@ func (q *Queries) GetSortedOrFilteredPostsForUser(ctx context.Context, arg GetSo
 	rows, err := q.db.QueryContext(ctx, getSortedOrFilteredPostsForUser,
 		arg.UserID,
 		arg.Limit,
+		arg.Offset,
 		arg.FeedName,
 		arg.SortAsc,
 		arg.SortDesc,

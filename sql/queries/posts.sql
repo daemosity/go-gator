@@ -44,4 +44,4 @@ ORDER BY -- This helps with dynamic sorting by passing boolean flags rather than
     CASE
         WHEN sqlc.arg(sort_desc)::bool THEN p.published_at
     END DESC
-LIMIT $2;
+LIMIT $2 OFFSET $3;

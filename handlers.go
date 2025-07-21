@@ -410,7 +410,8 @@ func handlerBrowse(s *state, cmd command, user database.User) error {
 	browseCmd := flag.NewFlagSet("browse", flag.ExitOnError)
 
 	// Defining flags
-	limit := browseCmd.Int("limit", 2, "The number of posts to retrieve")
+	limit := browseCmd.Int("limit", 2, "The number of posts to retrieve per page")
+	page := browseCmd.Int("page", 1, "The page number for pagination")
 	sort := browseCmd.String("sort", "desc", "Sort order for posts: 'asc' or 'desc'")
 	feedName := browseCmd.String("feed", "", "Filter posts by a specific feed name")
 
@@ -419,15 +420,22 @@ func handlerBrowse(s *state, cmd command, user database.User) error {
 		return fmt.Errorf("error parsing flags for browse command: %w", err)
 	}
 
-	// Validating the sort flag
+	// Validating the inputs
 	if *sort != "asc" && *sort != "desc" {
 		return fmt.Errorf("invalid sort value: must be 'asc' or 'desc'")
 	}
+	if *page < 1 {
+		return fmt.Errorf("invalid page number: must be 1 or greater")
+	}
+
+	// Calculate the offset for the database query
+	offset := (*page - 1) * (*limit)
 
 	// Preparing the params for the advanced query
 	params := database.GetSortedOrFilteredPostsForUserParams{
 		UserID:   user.ID,
 		Limit:    int32(*limit),
+		Offset:   int32(offset),
 		FeedName: *feedName,
 		SortAsc:  *sort == "asc",
 		SortDesc: *sort == "desc",
@@ -445,7 +453,7 @@ func handlerBrowse(s *state, cmd command, user database.User) error {
 	}
 
 	// Building output message
-	outputMessage := fmt.Sprintf("%s, here are your %d", user.Name, len(posts))
+	outputMessage := fmt.Sprintf("%s, showing %d posts on page %d of", user.Name, len(posts), *page)
 	if *sort == "desc" {
 		outputMessage += " most recent"
 	} else {

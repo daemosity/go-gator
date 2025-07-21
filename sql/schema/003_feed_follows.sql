@@ -10,4 +10,4 @@ CREATE TABLE feed_follows(
     FOREIGN KEY (feed_id) REFERENCES feeds (id) ON DELETE CASCADE
 );
 -- +goose Down
-DROP TABLE feeds;
+DROP TABLE feed_follows;

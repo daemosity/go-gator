@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"net/url"
+	"strconv"
 	"time"
 
 	"github.com/daemosity/go-gator/internal/database"
@@ -22,6 +24,7 @@ func getCommands() commands {
 	commands.register("follow", middlewareLoggedIn(handlerFollow))
 	commands.register("following", middlewareLoggedIn(handlerFollowing))
 	commands.register("unfollow", middlewareLoggedIn(handlerUnfollow))
+	commands.register("browse", middlewareLoggedIn(handlerBrowse))
 
 	return commands
 }
@@ -280,6 +283,43 @@ func handlerUnfollow(s *state, cmd command, user database.User) error {
 	return nil
 }
 
+func handlerBrowse(s *state, cmd command, user database.User) error {
+	if len(cmd.args) > 1 {
+		return fmt.Errorf("error: %s takes only one optional argument.\nUsage: %s (limit)", cmd.name, cmd.name)
+	}
+	ctx := context.Background()
+
+	var numPosts string
+	if len(cmd.args) == 1 {
+		numPosts = cmd.args[0]
+	} else {
+		numPosts = "2"
+	}
+
+	result, err := strconv.ParseInt(numPosts, 10, 32)
+	if err != nil {
+		return err
+	}
+	limit := int32(result)
+
+	searchParams := database.GetPostsForUserParams{
+		UserID: user.ID,
+		Limit:  limit,
+	}
+
+	posts, err := s.db.GetPostsForUser(ctx, searchParams)
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("%s, here are the %s most recent posts from your feed:\n\n", user.Name, numPosts)
+	for _, post := range posts {
+		fmt.Printf("\nPublished: %s\nTitle: %s\nDescription: %s\n\n", post.PublishedAt, post.Title.String, post.Description.String)
+	}
+
+	return nil
+}
+
 func scrapeFeeds(s *state) error {
 	ctx := context.Background()
 	feed, err := s.db.GetNextFeedToFetch(ctx)
@@ -293,10 +333,45 @@ func scrapeFeeds(s *state) error {
 		return err
 	}
 
-	fmt.Printf("\n\nDisplaying feed: %s\n", rssFeed.Channel.Title)
+	fmt.Printf("\nFetching feed: %v\n", rssFeed)
 	for _, feedItem := range rssFeed.Channel.Item {
-		fmt.Printf("Title: %s\n", feedItem.Title)
+		title := buildSQLNullString(feedItem.Title)
+		description := buildSQLNullString(feedItem.Description)
+		published, err := time.Parse(time.RFC1123Z, feedItem.PubDate)
+		if err != nil {
+			return err
+		}
+
+		newPost := database.CreatePostParams{
+			ID:          uuid.New(),
+			CreatedAt:   time.Now(),
+			UpdatedAt:   time.Now(),
+			Title:       title,
+			Url:         feedItem.Link,
+			Description: description,
+			PublishedAt: published,
+			FeedID:      feed.ID,
+		}
+
+		s.db.CreatePost(ctx, newPost)
 	}
 
 	return nil
+}
+
+func buildSQLNullString(text string) sql.NullString {
+	var entry sql.NullString
+	if len(text) > 0 {
+		entry = sql.NullString{
+			String: text,
+			Valid:  true,
+		}
+	} else {
+		entry = sql.NullString{
+			String: "",
+			Valid:  false,
+		}
+	}
+
+	return entry
 }

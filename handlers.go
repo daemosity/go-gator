@@ -343,24 +343,37 @@ func handlerBrowse(s *state, cmd command, user database.User) error {
 
 func scrapeFeeds(s *state) error {
 	ctx := context.Background()
+
+	// Get the next feed
 	feed, err := s.db.GetNextFeedToFetch(ctx)
 	if err != nil {
-		return err
+		// We return an error from this funcion here
+		// If we can't get a feed from the DB, something is wrong
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("no feeds to fetch")
+		}
+		return fmt.Errorf("could not get next feed to fetch: %w", err)
 	}
 
+	// Mark it as fetched immediaately to prevent other workers from picking it up
+	// If the script crashes, it will be tried again after the 'last_fetched_at' timeout
 	s.db.MarkFeedFetched(ctx, feed.ID)
 	rssFeed, err := fetchFeed(ctx, feed.Url)
 	if err != nil {
-		return err
+		// Log the failure for this feed but don't stop the aggregator
+		fmt.Printf("Error fetching feed '%s' (%s): %v\n", feed.Name, feed.Url, err)
+		return nil
 	}
 
-	fmt.Printf("\nFetching feed: %v\n", rssFeed)
+	fmt.Printf("\nFetching and processing feed: %s\n", rssFeed.Channel.Title)
 	for _, feedItem := range rssFeed.Channel.Item {
+		// Handle parsing and DB insertion for each item individually
 		title := buildSQLNullString(feedItem.Title)
 		description := buildSQLNullString(feedItem.Description)
 		published, err := parseDate(feedItem.PubDate)
 		if err != nil {
-			return err
+			fmt.Printf("Could not parse publish date '%s' for post '%s'. Skipping.\n", feedItem.PubDate, feedItem.Title)
+			continue // Skip this item and move to the next
 		}
 
 		newPost := database.CreatePostParams{
@@ -374,7 +387,15 @@ func scrapeFeeds(s *state) error {
 			FeedID:      feed.ID,
 		}
 
-		s.db.CreatePost(ctx, newPost)
+		if _, err := s.db.CreatePost(ctx, newPost); err != nil {
+			// Check if the post already exists - this isn't an error
+			if pqErr, ok := err.(*pq.Error); ok && pqErr.Code.Name() == "unique_violation" {
+				continue
+			}
+			// For any other error, log it and move on
+			fmt.Printf("Failed to save post '%s': %v\n", newPost.Title.String, err)
+			continue
+		}
 	}
 
 	return nil
